@@ -8,8 +8,9 @@ Live: https://turnyi.github.io/natural-bjj/
 
 - React app hosted on GitHub Pages, data in Supabase (free tier).
 - Everyone can read without logging in. Updates appear live on every open device.
-- The **Admin** tab is unlocked with a shared team PIN, checked server-side. Only the PIN can write; the database rejects direct writes.
-- The PIN can be changed from Admin → PIN.
+- Athletes register themselves from **Join** with a name, belt and personal PIN, then log their own matches, podiums and profile edits from their page ("This is me" on another device).
+- The **Admin** tab is unlocked with the team admin PIN and can edit everything, including resetting an athlete's PIN.
+- PINs are checked server-side and exchanged for a session token kept on the device, so people stay signed in. Direct database writes are rejected.
 
 ## Development
 

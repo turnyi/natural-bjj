@@ -771,3 +771,26 @@ code {
   border-radius: 6px;
   font-size: 0.9em;
 }
+
+.grow {
+  flex: 1;
+}
+
+.match-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.match-wrap .match {
+  flex: 1;
+}
+
+.match-wrap .match,
+.match-wrap {
+  margin-bottom: 8px;
+}
+
+.match-wrap .match {
+  margin-bottom: 0;
+}

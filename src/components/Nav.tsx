@@ -1,12 +1,15 @@
 import { NavLink } from 'react-router-dom'
-
-const tabs = [
-  { to: '/', label: 'Team', icon: '🥋' },
-  { to: '/championships', label: 'Events', icon: '🏆' },
-  { to: '/admin', label: 'Admin', icon: '⚙️' },
-]
+import { useStore } from '../store'
 
 export function Nav() {
+  const { session } = useStore()
+  const me = session?.athleteId
+  const tabs = [
+    { to: '/', label: 'Team', icon: '🥋' },
+    { to: '/championships', label: 'Events', icon: '🏆' },
+    me ? { to: `/athletes/${me}`, label: 'Me', icon: '👤' } : { to: '/join', label: 'Join', icon: '➕' },
+    { to: '/admin', label: 'Admin', icon: '⚙️' },
+  ]
   return (
     <nav className="nav">
       {tabs.map((t) => (

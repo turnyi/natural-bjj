@@ -1,15 +1,31 @@
 import { createClient } from '@supabase/supabase-js'
 import { SUPABASE_KEY, SUPABASE_URL } from '../config'
-import type { Athlete, Championship, Database, Match, Placement } from '../types'
+import type { Athlete, Belt, Championship, Database, Match, Placement } from '../types'
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 export type Table = 'athletes' | 'championships' | 'matches' | 'placements'
 export type Op = 'insert' | 'update' | 'delete'
 
-const PIN_KEY = 'natural-bjj-pin'
-export const getPin = () => localStorage.getItem(PIN_KEY) ?? ''
-export const setPin = (pin: string) => (pin ? localStorage.setItem(PIN_KEY, pin) : localStorage.removeItem(PIN_KEY))
+export interface Session {
+  token: string
+  athleteId: string | null
+  isAdmin: boolean
+}
+
+const SESSION_KEY = 'natural-bjj-session'
+
+export function loadSession(): Session | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY)
+    return raw ? (JSON.parse(raw) as Session) : null
+  } catch {
+    return null
+  }
+}
+
+export const saveSession = (s: Session | null) =>
+  s ? localStorage.setItem(SESSION_KEY, JSON.stringify(s)) : localStorage.removeItem(SESSION_KEY)
 
 const toCamel = (s: string) => s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
 const toSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)
@@ -37,28 +53,48 @@ export async function fetchDatabase(): Promise<Database> {
   return { athletes, championships, matches, placements }
 }
 
-export async function applyChange(op: Op, table: Table, row: Record<string, unknown>) {
-  const pin = getPin()
-  if (!pin) throw new Error('Admin PIN required')
-  const { error } = await supabase.rpc('apply_change', {
-    pin,
-    op,
-    tbl: table,
-    row_data: mapKeys(row, toSnake),
-  })
-  if (error) throw new Error(error.message === 'Wrong PIN' ? 'Wrong PIN. Lock admin and enter it again.' : error.message)
+export class SessionExpired extends Error {}
+
+async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.rpc(fn, args)
+  if (error) {
+    if (error.message === 'Session expired') throw new SessionExpired('Your session expired. Unlock again.')
+    throw new Error(error.message)
+  }
+  return data as T
 }
 
-export async function verifyPin(pin: string): Promise<boolean> {
-  const { data, error } = await supabase.rpc('verify_pin', { pin })
-  if (error) throw new Error(error.message)
-  return Boolean(data)
-}
+const toSession = (raw: { token: string; athleteId: string | null; isAdmin: boolean }): Session => ({
+  token: raw.token,
+  athleteId: raw.athleteId,
+  isAdmin: raw.isAdmin,
+})
 
-export async function changePin(oldPin: string, newPin: string) {
-  const { error } = await supabase.rpc('change_pin', { old_pin: oldPin, new_pin: newPin })
-  if (error) throw new Error(error.message)
-}
+export const login = async (pin: string, athleteId?: string) =>
+  toSession(await rpc('login', { pin, p_athlete_id: athleteId ?? null }))
+
+export const register = async (input: { name: string; belt: Belt; stripes: number; weight: string; pin: string }) =>
+  toSession(
+    await rpc('register', {
+      p_name: input.name,
+      p_belt: input.belt,
+      p_stripes: input.stripes,
+      p_weight: input.weight,
+      pin: input.pin,
+    }),
+  )
+
+export const logout = (token: string) => rpc<void>('logout', { token }).catch(() => undefined)
+
+export const whoami = (token: string) => rpc<{ athleteId: string | null; isAdmin: boolean }>('whoami', { token })
+
+export const changePin = (token: string, newPin: string) => rpc<void>('change_pin', { token, new_pin: newPin })
+
+export const setAthletePin = (token: string, athleteId: string, newPin: string) =>
+  rpc<void>('set_athlete_pin', { token, p_athlete_id: athleteId, new_pin: newPin })
+
+export const applyChange = (token: string, op: Op, table: Table, row: Record<string, unknown>) =>
+  rpc<Record<string, unknown>>('apply_change', { token, op, tbl: table, row_data: mapKeys(row, toSnake) })
 
 export function subscribe(onChange: () => void) {
   const channel = supabase
