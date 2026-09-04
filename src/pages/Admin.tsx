@@ -1,9 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { Belt } from '../components/Belt'
 import { Status } from '../components/Status'
-import { verifyToken } from '../lib/github'
+import { changePin, verifyPin } from '../lib/db'
 import { byDateDesc, formatDate } from '../lib/stats'
-import { useStore } from '../store'
+import { useStore, type Change } from '../store'
 import {
   BELTS,
   METHODS,
@@ -11,31 +11,28 @@ import {
   RESULTS,
   type Athlete,
   type Belt as BeltType,
-  type Database,
   type Method,
   type Place,
   type Result,
 } from '../types'
-import { REPO } from '../config'
 
-const uid = () => crypto.randomUUID()
 const today = () => new Date().toISOString().slice(0, 10)
 
 export function Admin() {
-  const { token } = useStore()
+  const { pin } = useStore()
   return (
     <Status>
       <header className="hero">
         <h1>Admin</h1>
-        <p className="muted">Changes are saved to the team repo.</p>
+        <p className="muted">Changes are live for the whole team instantly.</p>
       </header>
-      {token ? <Panels /> : <TokenSetup />}
+      {pin ? <Panels /> : <PinSetup />}
     </Status>
   )
 }
 
-function TokenSetup() {
-  const { setToken } = useStore()
+function PinSetup() {
+  const { setPin } = useStore()
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -44,25 +41,24 @@ function TokenSetup() {
     e.preventDefault()
     setBusy(true)
     setError('')
-    const ok = await verifyToken(value.trim())
-    setBusy(false)
-    if (!ok) return setError('That token cannot write to the repo. Check it has Contents: Read and write.')
-    setToken(value.trim())
+    try {
+      if (!(await verifyPin(value.trim()))) throw new Error('Wrong PIN')
+      setPin(value.trim())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not verify PIN')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
     <form className="panel" onSubmit={submit}>
       <h2>Unlock admin</h2>
-      <p className="muted">
-        Paste a GitHub fine-grained token with <b>Contents: Read and write</b> on{' '}
-        <code>
-          {REPO.owner}/{REPO.name}
-        </code>
-        . It stays on this device only.
-      </p>
+      <p className="muted">Enter the team admin PIN. It stays saved on this device.</p>
       <input
         type="password"
-        placeholder="github_pat_…"
+        inputMode="numeric"
+        placeholder="PIN"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         autoComplete="off"
@@ -72,28 +68,21 @@ function TokenSetup() {
       <button type="submit" disabled={busy}>
         {busy ? 'Checking…' : 'Unlock'}
       </button>
-      <a
-        className="muted small"
-        href="https://github.com/settings/personal-access-tokens/new"
-        target="_blank"
-        rel="noreferrer"
-      >
-        Create a token on GitHub ↗
-      </a>
     </form>
   )
 }
 
-type Tab = 'match' | 'placement' | 'athletes' | 'events'
+type Tab = 'match' | 'placement' | 'athletes' | 'events' | 'pin'
 
 function Panels() {
-  const { setToken, reload } = useStore()
+  const { setPin, reload } = useStore()
   const [tab, setTab] = useState<Tab>('match')
   const tabs: { key: Tab; label: string }[] = [
     { key: 'match', label: 'Match' },
     { key: 'placement', label: 'Podium' },
     { key: 'athletes', label: 'Athletes' },
     { key: 'events', label: 'Events' },
+    { key: 'pin', label: 'PIN' },
   ]
   return (
     <>
@@ -108,11 +97,12 @@ function Panels() {
       {tab === 'placement' && <PlacementForm />}
       {tab === 'athletes' && <Athletes />}
       {tab === 'events' && <Events />}
+      {tab === 'pin' && <ChangePin />}
       <div className="row gap">
         <button className="ghost" onClick={reload}>
           Refresh data
         </button>
-        <button className="ghost danger" onClick={() => setToken('')}>
+        <button className="ghost danger" onClick={() => setPin('')}>
           Lock admin
         </button>
       </div>
@@ -121,14 +111,14 @@ function Panels() {
 }
 
 function useSave() {
-  const { commit } = useStore()
+  const { write } = useStore()
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
-  const save = async (mutate: (db: Database) => Database, message: string, onDone?: () => void) => {
+  const save = async (change: Change, onDone?: () => void) => {
     setBusy(true)
     setMsg(null)
     try {
-      await commit(mutate, message)
+      await write(change)
       setMsg({ ok: true, text: 'Saved' })
       onDone?.()
     } catch (e) {
@@ -201,29 +191,24 @@ function MatchForm() {
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    const athlete = db.athletes.find((a) => a.id === f.athleteId)
     save(
-      (d) => ({
-        ...d,
-        matches: [
-          ...d.matches,
-          {
-            id: uid(),
-            championshipId: f.championshipId,
-            athleteId: f.athleteId,
-            opponent: f.opponent.trim(),
-            opponentTeam: f.opponentTeam.trim() || undefined,
-            round: f.round.trim() || undefined,
-            result: f.result,
-            method: f.method,
-            submission: f.method === 'submission' ? f.submission.trim() || undefined : undefined,
-            scored: Number(f.scored) || 0,
-            conceded: Number(f.conceded) || 0,
-            notes: f.notes.trim() || undefined,
-          },
-        ],
-      }),
-      `Add match: ${athlete?.name ?? 'athlete'} ${f.result} vs ${f.opponent}`,
+      {
+        op: 'insert',
+        table: 'matches',
+        row: {
+          championshipId: f.championshipId,
+          athleteId: f.athleteId,
+          opponent: f.opponent.trim(),
+          opponentTeam: f.opponentTeam.trim() || undefined,
+          round: f.round.trim() || undefined,
+          result: f.result,
+          method: f.method,
+          submission: f.method === 'submission' ? f.submission.trim() || undefined : undefined,
+          scored: Number(f.scored) || 0,
+          conceded: Number(f.conceded) || 0,
+          notes: f.notes.trim() || undefined,
+        },
+      },
       () => setF((s) => ({ ...blank, championshipId: s.championshipId, athleteId: s.athleteId })),
     )
   }
@@ -313,7 +298,7 @@ function MatchForm() {
               </span>
               <DeleteButton
                 label="Delete match"
-                onConfirm={() => save((d) => ({ ...d, matches: d.matches.filter((x) => x.id !== m.id) }), `Delete match ${m.id}`)}
+                onConfirm={() => save({ op: 'delete', table: 'matches', row: { id: m.id } })}
               />
             </div>
           ))}
@@ -333,11 +318,7 @@ function PlacementForm() {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     save(
-      (d) => ({
-        ...d,
-        placements: [...d.placements, { id: uid(), ...f, division: f.division.trim() }],
-      }),
-      `Add podium: ${nameOf(f.athleteId)} place ${f.place}`,
+      { op: 'insert', table: 'placements', row: { ...f, division: f.division.trim() } },
       () => setF((s) => ({ ...s, athleteId: '', division: '' })),
     )
   }
@@ -394,9 +375,7 @@ function PlacementForm() {
               </span>
               <DeleteButton
                 label="Delete podium"
-                onConfirm={() =>
-                  save((d) => ({ ...d, placements: d.placements.filter((x) => x.id !== p.id) }), `Delete podium ${p.id}`)
-                }
+                onConfirm={() => save({ op: 'delete', table: 'placements', row: { id: p.id } })}
               />
             </div>
           ))}
@@ -415,11 +394,7 @@ function Athletes() {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     save(
-      (d) => ({
-        ...d,
-        athletes: [...d.athletes, { id: uid(), name: f.name.trim(), belt: f.belt, stripes: f.stripes, weight: f.weight.trim() || undefined }],
-      }),
-      `Add athlete: ${f.name}`,
+      { op: 'insert', table: 'athletes', row: { name: f.name.trim(), belt: f.belt, stripes: f.stripes, weight: f.weight.trim() || null } },
       () => setF({ name: '', belt: 'white', stripes: 0, weight: '' }),
     )
   }
@@ -428,8 +403,7 @@ function Athletes() {
     e.preventDefault()
     if (!editing) return
     save(
-      (d) => ({ ...d, athletes: d.athletes.map((a) => (a.id === editing.id ? { ...editing, name: editing.name.trim() } : a)) }),
-      `Update athlete: ${editing.name}`,
+      { op: 'update', table: 'athletes', row: { ...editing, name: editing.name.trim(), weight: editing.weight?.trim() || null } },
       () => setEditing(null),
     )
   }
@@ -510,17 +484,7 @@ function Athletes() {
               </button>
               <DeleteButton
                 label="Delete athlete"
-                onConfirm={() =>
-                  save(
-                    (d) => ({
-                      ...d,
-                      athletes: d.athletes.filter((x) => x.id !== a.id),
-                      matches: d.matches.filter((m) => m.athleteId !== a.id),
-                      placements: d.placements.filter((p) => p.athleteId !== a.id),
-                    }),
-                    `Delete athlete: ${a.name}`,
-                  )
-                }
+                onConfirm={() => save({ op: 'delete', table: 'athletes', row: { id: a.id } })}
               />
             </span>
           </div>
@@ -538,20 +502,16 @@ function Events() {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     save(
-      (d) => ({
-        ...d,
-        championships: [
-          ...d.championships,
-          {
-            id: uid(),
-            name: f.name.trim(),
-            date: f.date,
-            location: f.location.trim() || undefined,
-            organization: f.organization.trim() || undefined,
-          },
-        ],
-      }),
-      `Add championship: ${f.name}`,
+      {
+        op: 'insert',
+        table: 'championships',
+        row: {
+          name: f.name.trim(),
+          date: f.date,
+          location: f.location.trim() || null,
+          organization: f.organization.trim() || null,
+        },
+      },
       () => setF({ name: '', date: today(), location: '', organization: '' }),
     )
   }
@@ -590,22 +550,49 @@ function Events() {
             </span>
             <DeleteButton
               label="Delete championship"
-              onConfirm={() =>
-                save(
-                  (d) => ({
-                    ...d,
-                    championships: d.championships.filter((x) => x.id !== c.id),
-                    matches: d.matches.filter((m) => m.championshipId !== c.id),
-                    placements: d.placements.filter((p) => p.championshipId !== c.id),
-                  }),
-                  `Delete championship: ${c.name}`,
-                )
-              }
+              onConfirm={() => save({ op: 'delete', table: 'championships', row: { id: c.id } })}
             />
           </div>
         ))}
       </section>
     </>
+  )
+}
+
+function ChangePin() {
+  const { pin, setPin } = useStore()
+  const [next, setNext] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setMsg(null)
+    try {
+      await changePin(pin, next.trim())
+      setPin(next.trim())
+      setNext('')
+      setMsg({ ok: true, text: 'PIN changed. Share the new one with the other admins.' })
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : 'Could not change PIN' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="panel" onSubmit={submit}>
+      <h2>Change admin PIN</h2>
+      <p className="muted">Anyone with the PIN can edit results. Other devices will need the new PIN.</p>
+      <Field label="New PIN">
+        <input type="password" inputMode="numeric" value={next} onChange={(e) => setNext(e.target.value)} minLength={4} required />
+      </Field>
+      {msg ? <p className={msg.ok ? 'success' : 'error'}>{msg.text}</p> : null}
+      <button type="submit" disabled={busy}>
+        {busy ? 'Saving…' : 'Change PIN'}
+      </button>
+    </form>
   )
 }
 

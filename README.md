@@ -6,25 +6,17 @@ Live: https://turnyi.github.io/natural-bjj/
 
 ## How it works
 
-- Static React app hosted on GitHub Pages.
-- All data lives in [`data/db.json`](data/db.json) in this repo. Everyone can read it, no login needed.
-- The **Admin** tab writes to that file through the GitHub API. To unlock it, paste a GitHub token once on your device.
-
-## Getting an admin token
-
-1. Go to https://github.com/settings/personal-access-tokens/new
-2. Token name: `natural-bjj`. Expiration: pick the longest you're comfortable with.
-3. Repository access: **Only select repositories** → `natural-bjj`.
-4. Permissions → Repository permissions → **Contents: Read and write**. Nothing else.
-5. Generate, copy the token, open the app → Admin → paste → Unlock.
-
-Share the token only with the people who should be allowed to edit results. It is stored in the browser of the device where it was pasted and never leaves it except to talk to GitHub.
+- React app hosted on GitHub Pages, data in Supabase (free tier).
+- Everyone can read without logging in. Updates appear live on every open device.
+- The **Admin** tab is unlocked with a shared team PIN, checked server-side. Only the PIN can write; the database rejects direct writes.
+- The PIN can be changed from Admin → PIN.
 
 ## Development
 
 ```sh
+cp .env.example .env
 pnpm install
 pnpm dev
 ```
 
-Pushes to `main` deploy automatically via GitHub Actions. Edits made from the Admin tab commit straight to `data/db.json` and do not trigger a rebuild; the app fetches the file live.
+Fill `.env` with the Supabase project URL and publishable key. Pushes to `main` deploy via GitHub Actions, which reads the same two values from repository secrets.
