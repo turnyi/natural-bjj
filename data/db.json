@@ -1,5 +1,12 @@
 {
-  "athletes": [],
+  "athletes": [
+    {
+      "id": "smoke",
+      "name": "Smoke Test",
+      "belt": "blue",
+      "stripes": 2
+    }
+  ],
   "championships": [],
   "matches": [],
   "placements": []
