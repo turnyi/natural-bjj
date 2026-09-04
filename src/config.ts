@@ -1,5 +1,5 @@
 export const REPO = {
-  owner: '402Martin',
+  owner: 'turnyi',
   name: 'natural-bjj',
   branch: 'main',
   path: 'data/db.json',

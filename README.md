@@ -2,7 +2,7 @@
 
 Competition tracker for the Natural BJJ team: athletes with belts, championships, every match with result, method, submission and points, plus podium finishes.
 
-Live: https://402martin.github.io/natural-bjj/
+Live: https://turnyi.github.io/natural-bjj/
 
 ## How it works
 
